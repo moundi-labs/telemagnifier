@@ -1,0 +1,105 @@
+version: '3.8'
+
+services:
+  # 메인 reverse shell 플러그인 테스트 컨테이너
+  reverse-shell-plugin-test:
+    build: 
+      context: ../../
+      dockerfile: tests/Dockerfile
+    container_name: reverse-shell-plugin-test
+    privileged: true  # eBPF 프로그램 실행을 위해 필요
+    cap_add:
+      - SYS_ADMIN
+      - NET_ADMIN
+      - BPF
+      - SYS_PTRACE
+    volumes:
+      - /sys/kernel/debug:/sys/kernel/debug
+      - /proc:/proc
+      - /sys/fs/bpf:/sys/fs/bpf
+      - /dev:/dev
+    environment:
+      - RUST_LOG=info
+      - RUST_BACKTRACE=1
+    command: ["./test_reverse_shell_plugin.sh"]
+    networks:
+      - plugin-test-network
+    depends_on:
+      - reverse-shell-targets
+
+  # 리버스 쉘 타겟 서버들 (플러그인 테스트용)
+  reverse-shell-targets:
+    image: alpine:latest
+    container_name: reverse-shell-targets
+    command: >
+      sh -c "
+        apk add --no-cache netcat-openbsd python3 perl bash curl wget &&
+        echo 'Reverse shell targets listening on multiple ports' &&
+        echo 'Starting listeners for plugin testing...' &&
+        # 의심스러운 포트들에서 리스너 시작
+        nc -l -p 4444 -k &
+        nc -l -p 1337 -k &
+        nc -l -p 31337 -k &
+        nc -l -p 9001 -k &
+        nc -l -p 9002 -k &
+        nc -l -p 8080 -k &
+        nc -l -p 6667 -k &
+        nc -l -p 6668 -k &
+        nc -l -p 6669 -k &
+        echo 'All target listeners started. Waiting for connections...' &&
+        wait
+      "
+    ports:
+      - "4444:4444"
+      - "1337:1337"
+      - "31337:31337"
+      - "9001:9001"
+      - "9002:9002"
+      - "8080:8080"
+      - "6667:6667"
+      - "6668:6668"
+      - "6669:6669"
+    networks:
+      - plugin-test-network
+
+  # 플러그인 모니터링 컨테이너
+  plugin-monitor:
+    image: alpine:latest
+    container_name: plugin-monitor
+    command: >
+      sh -c "
+        apk add --no-cache netstat-openbsd procps bpftool &&
+        echo 'Monitoring reverse shell plugin activity...' &&
+        while true; do
+          echo '=== Plugin Monitoring Status ===' &&
+          echo 'Time: $(date)' &&
+          echo '' &&
+          echo '--- Network Connections ---' &&
+          netstat -tuln | grep -E '(4444|1337|31337|9001|9002|8080|6667|6668|6669)' || echo 'No target connections' &&
+          echo '' &&
+          echo '--- Active Processes ---' &&
+          ps aux | grep -E '(nc|python|perl|bash|wget|curl)' | grep -v grep || echo 'No suspicious processes' &&
+          echo '' &&
+          echo '--- TCP Connections (from /proc/net/tcp) ---' &&
+          cat /proc/net/tcp | head -20 || echo 'Cannot read /proc/net/tcp' &&
+          echo '' &&
+          echo '--- eBPF Programs ---' &&
+          ls -la /sys/fs/bpf/ 2>/dev/null || echo 'No eBPF programs found' &&
+          echo '' &&
+          echo '--- Kernel Modules ---' &&
+          lsmod | grep -E '(bpf|xdp)' || echo 'No BPF/XDP modules found' &&
+          echo '================================' &&
+          sleep 15
+        done
+      "
+    volumes:
+      - /proc:/proc
+      - /sys/fs/bpf:/sys/fs/bpf
+    networks:
+      - plugin-test-network
+    depends_on:
+      - reverse-shell-plugin-test
+
+networks:
+  plugin-test-network:
+    driver: bridge

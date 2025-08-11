@@ -1,0 +1,33 @@
+[package]
+name = "linux_agent"
+version = "0.0.1"
+edition = "2021"
+
+[dependencies]
+# For async runtime
+tokio = { version = "1.0", features = ["full"] }
+clap = { version = "4.0", features = ["derive"] }
+log = "0.4"
+env_logger = "0.10"
+anyhow = "1.0"
+
+# For system monitoring
+libc = "0.2"
+nix = "0.26"
+
+# Conditional dependencies for Linux only
+[target.'cfg(target_os = "linux")'.dependencies]
+aya = "0.12"
+aya-log = "0.2"
+
+[[example]]
+name = "basic_usage"
+path = "examples/basic_usage.rs"
+
+[[example]]
+name = "container_test"
+path = "examples/container_test.rs"
+
+[[example]]
+name = "plugin_test"
+path = "examples/plugin_test.rs"
